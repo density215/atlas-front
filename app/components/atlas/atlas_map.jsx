@@ -12,8 +12,10 @@
  *
  */
 import React from 'react';
-import {Map, MarkerGroup} from 'react-d3-map';
-import {ZoomControl} from 'react-d3-map-core';
+import {json} from 'd3-request';
+import {select} from 'd3-selection';
+import {geoPath, geoOrthographic, geoGraticule, geoDistance} from 'd3-geo';
+import topojson from 'topojson';
 
 export class AtlasMap extends React.Component {
     constructor(props) {
@@ -78,30 +80,206 @@ export class AtlasMap extends React.Component {
 
         return (
             <div className="mapContainer">
-                <Map projection="mercator"
-                     height={height}
-                     width={width}
-                     scale={scale}
-                     center={center}
-                     scaleExtent={scaleExtent}
-                     zoomScale={this.state.scale}
-                     center={center}>
-                    <MarkerGroup key={"marker-test"}
-                                 data={data}
-                                 popupContent={popupContent}
-                                 onClick={onMarkerClick}
-                                 onCloseClick={onMarkerCloseClick}
-                                 markerClass={"marker-class"}/>
-                </Map>
-                <ZoomControl
-                    zoomInClick={zoomIn.bind(this)}
-                    zoomOutClick={zoomOut.bind(this)}
-                />
             </div>
         )
     }
 }
 
+export default function testMap() {
+
+    var width = 800,
+        height = 932;
+
+    var m0, o0;
+
+    var svg = select(".mapContainer").append("svg")
+        .attr("width", width)
+        .attr("height", height)
+        .on('mousedown', mousedown)
+        .on('mousemove', mousemove)
+        .on('mouseup', mouseup);
+
+    var projection = geoOrthographic()
+        .scale(333)
+        .translate([width / 2, height / 2])
+        .precision(0.2)
+        .clipAngle(90);
+
+    var path = geoPath()
+        .projection(projection)
+        .pointRadius(1.5);
+
+    var graticule = geoGraticule();
+
+    function position_labels() {
+        var centerPos = projection.invert([width / 2, height / 2]);
+
+        svg.selectAll(".place-label")
+            .attr("text-anchor", function (d) {
+                var x = projection(d.geometry.coordinates)[0];
+                return x < width / 2 - 20 ? "end" :
+                    x < width / 2 + 20 ? "middle" :
+                        "start"
+            })
+            .attr("transform", function (d) {
+                var loc = projection(d.geometry.coordinates),
+                    x = loc[0],
+                    y = loc[1];
+                var offset = x < width / 2 ? -5 : 5;
+                return "translate(" + (x + offset) + "," + (y - 2) + ")"
+            })
+            .style("display", function (d) {
+                var d = geoDistance(d.geometry.coordinates, centerPos);
+                return (d > 1.57) ? 'none' : 'inline';
+            });
+    }
+
+    function mousedown() {
+        m0 = [event.pageX, event.pageY];
+        o0 = projection.rotate();
+        event.preventDefault();
+    }
+
+    function mousemove() {
+        if (m0) {
+            var m1 = [event.pageX, event.pageY]
+                , o1 = [o0[0] + (m1[0] - m0[0]) / 6, o0[1] + (m0[1] - m1[1]) / 6];
+            o1[1] = o1[1] > 30 ? 30 :
+                o1[1] < -30 ? -30 :
+                    o1[1];
+            projection.rotate(o1);
+            refresh();
+        }
+    }
+
+    function mouseup() {
+        if (m0) {
+            mousemove();
+            m0 = null;
+        }
+    }
+
+    function refresh() {
+        //svg.selectAll(".land").attr("d", path);
+        svg.selectAll(".land").attr("d", path);
+        svg.selectAll(".graticule").attr("d", path);
+        svg.selectAll(".place").attr("d", path);
+        position_labels();
+    }
+
+    json("maps/countries_topo.json", function (error, countries) {
+        if (error) return console.error(error);
+        var countries_map = topojson.feature(countries,
+            countries.objects.countries_50m
+        );
+        var places = countries.objects.populated_places_50m;
+        places.geometries = countries.objects.populated_places_50m.geometries.filter(
+            (place) => {
+                return place.properties.scalerank < 2;
+            }
+        );
+
+        var places_map = topojson.feature(countries, places);
+
+        // Oceans and shading
+
+        var ocean_fill = svg.append("defs").append("radialGradient")
+            .attr("id", "ocean_fill")
+            .attr("cx", "75%")
+            .attr("cy", "25%");
+        ocean_fill.append("stop").attr("offset", "5%").attr("stop-color", "#ddf");
+        ocean_fill.append("stop").attr("offset", "100%").attr("stop-color", "#9ab");
+
+        var globe_highlight = svg.append("defs").append("radialGradient")
+            .attr("id", "globe_highlight")
+            .attr("cx", "75%")
+            .attr("cy", "25%");
+
+        globe_highlight.append("stop")
+            .attr("offset", "5%").attr("stop-color", "#ffd")
+            .attr("stop-opacity", "0.6");
+
+        globe_highlight.append("stop")
+            .attr("offset", "100%").attr("stop-color", "#2eaad3")
+            .attr("stop-opacity", "0.2");
+
+        var globe_shading = svg.append("defs").append("radialGradient")
+            .attr("id", "globe_shading")
+            .attr("cx", "50%")
+            .attr("cy", "40%");
+
+        globe_shading.append("stop")
+            .attr("offset", "50%").attr("stop-color", "#9ab")
+            .attr("stop-opacity", "0");
+
+        globe_shading.append("stop")
+            .attr("offset", "100%").attr("stop-color", "#3e6184")
+            .attr("stop-opacity", "0.3");
+
+        svg.append("circle")
+            .attr("cx", width / 2).attr("cy", height / 2)
+            .attr("r", projection.scale())
+            .attr("class", "noclicks")
+            .style("fill", "url(#ocean_fill)");
+
+        svg.append("circle")
+            .attr("cx", width / 2).attr("cy", height / 2)
+            .attr("r", projection.scale())
+            .attr("class", "noclicks")
+            .style("fill", "url(#globe_shading)");
+
+        svg.append("circle")
+            .attr("cx", width / 2).attr("cy", height / 2)
+            .attr("r", projection.scale())
+            .attr("class", "noclicks")
+            .style("fill", "url(#globe_highlight)");
+
+
+        // end oceans and shading
+
+        /* svg.append("path")
+         .datum(countries_map)
+         .attr("class", "land")
+         .attr("d", path); */
+
+        svg.selectAll(".country")
+            .data(countries_map.features)
+            .enter().append('path')
+            .attr('class', function (d) {
+                return "land country_" + d.id;
+            })
+            .attr('d', path);
+
+        svg.append("path")
+            .datum(places_map)
+            .attr('d', path)
+            .attr('class', 'place');
+
+        svg.append("path")
+            .datum(graticule)
+            .attr("class", "graticule")
+            .attr("d", path);
+
+        svg.selectAll(".place-label")
+            .data(places_map.features.filter(function (f) {
+                return f.properties.scalerank < 2;
+            }))
+            .enter().append("text")
+            .attr("class", function (d) {
+                return "place-label rank_" + d.properties.scalerank;
+            })
+            .attr("transform", function (d) {
+                return "translate(" + projection(d.geometry.coordinates) + ")";
+            })
+            .attr("dy", "2em")
+            .attr("dx", "0")
+            .text(function (d) {
+                return d.properties.name;
+            });
+
+        position_labels();
+    });
+}
 /*export function AtlasMap (spec) {
  var _public = {
  /!* probes:

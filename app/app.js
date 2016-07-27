@@ -5,6 +5,7 @@ import ReactDOM from "react-dom";
 
 import 'babel-polyfill';
 import {AtlasMenu, AtlasSurface} from "./components/atlas/page_elements.jsx";
+import testMap from "./components/atlas/atlas_map.jsx";
 
 let portletMenus =
     [
@@ -89,3 +90,4 @@ let portletMenus =
     ];
 
 ReactDOM.render(<div id="external" className="col-md-12"><AtlasMenu portletMenus={portletMenus} /><AtlasSurface /></div>, document.getElementById('content'));
+testMap();
